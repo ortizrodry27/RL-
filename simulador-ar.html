@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>Simulador AR de cámaras — RL Soporte</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📹</text></svg>">
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --surface: #ffffff;
+    --text: #14181f;
+    --muted: #5c6470;
+    --accent: #c97a2c;
+    --accent-text: #1a1300;
+    --border: rgba(20,24,31,0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b0f14;
+      --surface: #131a22;
+      --text: #eef1f5;
+      --muted: #93a0ad;
+      --accent: #ffb020;
+      --accent-text: #1a1300;
+      --border: rgba(255,255,255,0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0f14;
+    --surface: #131a22;
+    --text: #eef1f5;
+    --muted: #93a0ad;
+    --accent: #ffb020;
+    --accent-text: #1a1300;
+    --border: rgba(255,255,255,0.12);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    touch-action: none; user-select: none;
+  }
+
+  /* ---------- Pantalla previa (landing) ---------- */
+  #landing {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+    background: var(--bg);
+    z-index: 20; overflow-y: auto;
+  }
+  #landing-card { max-width: 420px; width: 100%; text-align: left; }
+  #landing-card .eyebrow-free-title {
+    font-size: 26px; font-weight: 650; line-height: 1.25; margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  #landing-card p { color: var(--muted); font-size: 15px; line-height: 1.55; margin: 0 0 18px; }
+  #status-line {
+    font-size: 14px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+    margin-bottom: 20px; color: var(--muted);
+  }
+  #status-line.ok { color: var(--text); border-color: var(--accent); }
+  #status-line.bad { color: #d15a5a; border-color: rgba(209,90,90,0.4); }
+  #start-btn {
+    display: block; width: 100%; padding: 15px 18px; border: none; border-radius: 12px;
+    background: var(--accent); color: var(--accent-text); font-size: 16px; font-weight: 650;
+    cursor: pointer;
+  }
+  #start-btn:disabled { opacity: 0.45; }
+  #landing-foot { margin-top: 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+  #landing-brand {
+    margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px;
+  }
+  #landing-brand strong { color: var(--text); font-weight: 650; }
+
+  /* ---------- Overlay durante AR ---------- */
+  #ar-overlay {
+    position: fixed; inset: 0; z-index: 10; display: none;
+    pointer-events: none;
+  }
+  #ar-overlay.active { display: block; }
+
+  #top-status {
+    position: absolute; left: 0; right: 0; top: max(14px, env(safe-area-inset-top));
+    display: flex; justify-content: center; pointer-events: none;
+  }
+  #top-status span {
+    background: rgba(10,14,20,0.72); color: #f2f4f7; font-size: 13.5px;
+    padding: 9px 16px; border-radius: 999px; backdrop-filter: blur(6px);
+    max-width: 82vw; text-align: center;
+  }
+
+  #bottom-panel {
+    position: absolute; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+    pointer-events: none;
+  }
+  .pill-row { display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap; justify-content: center; }
+  .type-btn {
+    padding: 9px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(10,14,20,0.72); color: #cfd6de; font-size: 13.5px; font-weight: 600;
+    backdrop-filter: blur(6px);
+  }
+  .type-btn.active { background: #ffb020; color: #1a1300; border-color: #ffb020; }
+
+  .fov-row { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+  .fov-btn {
+    width: 34px; height: 34px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(10,14,20,0.72); color: #f2f4f7; font-size: 17px; line-height: 1;
+  }
+  #fov-label { color: #cfd6de; font-size: 13px; min-width: 96px; text-align: center; }
+
+  .util-row { display: flex; gap: 8px; pointer-events: auto; }
+  .util-btn {
+    padding: 9px 13px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(10,14,20,0.6); color: #cfd6de; font-size: 12.5px; font-weight: 600;
+    backdrop-filter: blur(6px);
+  }
+  .util-btn.on { background: rgba(255,176,32,0.22); color: #ffb020; border-color: rgba(255,176,32,0.5); }
+
+  canvas { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+
+<div id="landing">
+  <div id="landing-card">
+    <p class="eyebrow-free-title">Simulador AR de cámaras</p>
+    <p>Apuntá el celular a una pared o al techo y previsualizá cómo queda instalada la cámara, con su cono de cobertura y distancias aproximadas, antes de poner un solo tornillo.</p>
+    <div id="status-line">Comprobando compatibilidad…</div>
+    <button id="start-btn" disabled>Iniciar AR</button>
+    <div id="landing-foot">Los ángulos de cobertura son orientativos — ajustalos con los datos reales de cada modelo antes de mostrárselo a un cliente.</div>
+    <div id="landing-brand"><strong>RL Soporte &amp; Seguridad</strong><span>WhatsApp 2804 86-7733 · rlinformatica.pm@gmail.com</span></div>
+  </div>
+</div>
+
+<div id="ar-overlay">
+  <div id="top-status"><span id="status-text">Buscando superficie…</span></div>
+  <div id="bottom-panel">
+    <div class="pill-row" id="type-row">
+      <button class="type-btn" data-type="bullet">Bala</button>
+      <button class="type-btn" data-type="dome">Domo</button>
+      <button class="type-btn" data-type="ptz">PTZ</button>
+    </div>
+    <div class="fov-row">
+      <button class="fov-btn" id="fov-minus">−</button>
+      <span id="fov-label">Cobertura: 80°</span>
+      <button class="fov-btn" id="fov-plus">+</button>
+    </div>
+    <div class="util-row">
+      <button class="util-btn on" id="coverage-toggle">Cono: ON</button>
+      <button class="util-btn" id="undo-btn">Deshacer</button>
+      <button class="util-btn" id="reset-btn">Reiniciar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var PREFS_KEY = "rl-ar-sim-prefs";
+
+  // ---------- Config de tipos de cámara ----------
+  var cameraTypes = {
+    bullet: { label: "Bala", fov: 80,  min: 40, max: 130, color: 0xe9e9e9, dark: 0x232323 },
+    dome:   { label: "Domo", fov: 100, min: 60, max: 150, color: 0xf1f1f1, dark: 0x1d1d1d },
+    ptz:    { label: "PTZ",  fov: 60,  min: 30, max: 110, color: 0xdedede, dark: 0x1a1a1a }
+  };
+  var selectedType = "bullet";
+  var coverageEnabled = true;
+  var COVERAGE_RANGE = 3; // metros — largo visual del cono, aproximado
+
+  // ---------- Persistencia liviana (por celular, no compartida) ----------
+  function loadPrefs() {
+    try {
+      var raw = localStorage.getItem(PREFS_KEY);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (saved.selectedType && cameraTypes[saved.selectedType]) selectedType = saved.selectedType;
+      if (saved.fovByType) {
+        Object.keys(saved.fovByType).forEach(function (k) {
+          if (cameraTypes[k]) {
+            var v = saved.fovByType[k];
+            cameraTypes[k].fov = Math.max(cameraTypes[k].min, Math.min(cameraTypes[k].max, v));
+          }
+        });
+      }
+      if (typeof saved.coverageEnabled === "boolean") coverageEnabled = saved.coverageEnabled;
+    } catch (e) { /* localStorage no disponible: seguimos con los valores por defecto */ }
+  }
+  function savePrefs() {
+    try {
+      var fovByType = {};
+      Object.keys(cameraTypes).forEach(function (k) { fovByType[k] = cameraTypes[k].fov; });
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        selectedType: selectedType, fovByType: fovByType, coverageEnabled: coverageEnabled
+      }));
+    } catch (e) { /* nada que hacer si no se puede guardar */ }
+  }
+
+  // ---------- DOM ----------
+  var landing = document.getElementById("landing");
+  var statusLine = document.getElementById("status-line");
+  var startBtn = document.getElementById("start-btn");
+  var arOverlay = document.getElementById("ar-overlay");
+  var statusText = document.getElementById("status-text");
+  var fovLabel = document.getElementById("fov-label");
+  var coverageToggle = document.getElementById("coverage-toggle");
+  var typeButtons = document.querySelectorAll(".type-btn");
+
+  function updateFovLabel() {
+    fovLabel.textContent = "Cobertura: " + cameraTypes[selectedType].fov + "°";
+  }
+  function syncTypeButtons() {
+    typeButtons.forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-type") === selectedType);
+    });
+  }
+  function syncCoverageButton() {
+    coverageToggle.textContent = "Cono: " + (coverageEnabled ? "ON" : "OFF");
+    coverageToggle.classList.toggle("on", coverageEnabled);
+  }
+
+  typeButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      selectedType = btn.getAttribute("data-type");
+      syncTypeButtons();
+      updateFovLabel();
+      savePrefs();
+    });
+  });
+
+  document.getElementById("fov-minus").addEventListener("click", function () {
+    var t = cameraTypes[selectedType];
+    t.fov = Math.max(t.min, t.fov - 5);
+    updateFovLabel();
+    savePrefs();
+  });
+  document.getElementById("fov-plus").addEventListener("click", function () {
+    var t = cameraTypes[selectedType];
+    t.fov = Math.min(t.max, t.fov + 5);
+    updateFovLabel();
+    savePrefs();
+  });
+
+  coverageToggle.addEventListener("click", function () {
+    coverageEnabled = !coverageEnabled;
+    syncCoverageButton();
+    placedObjects.forEach(function (obj) {
+      if (obj.userData.coverageGroup) obj.userData.coverageGroup.visible = coverageEnabled;
+    });
+    savePrefs();
+  });
+
+  document.getElementById("reset-btn").addEventListener("click", clearPlaced);
+  document.getElementById("undo-btn").addEventListener("click", undoLast);
+
+  // ---------- Compatibilidad ----------
+  function checkSupport() {
+    var ua = navigator.userAgent || "";
+    var isIOS = /iPhone|iPad|iPod/.test(ua);
+
+    if (!("xr" in navigator)) {
+      if (isIOS) {
+        statusLine.textContent = "Estás en iPhone — Safari todavía no soporta esta función. Abrí este link desde Chrome en un Android.";
+      } else {
+        statusLine.textContent = "Este navegador no soporta WebXR. Abrí este link desde Chrome en un Android.";
+      }
+      statusLine.className = "bad";
+      return;
+    }
+    navigator.xr.isSessionSupported("immersive-ar").then(function (supported) {
+      if (supported) {
+        statusLine.textContent = "Listo para usar la cámara y detectar superficies.";
+        statusLine.className = "ok";
+        startBtn.disabled = false;
+      } else {
+        statusLine.textContent = "Tu Android no tiene ARCore actualizado. Instalá \"Servicios de Google Play para RA\" desde Play Store y volvé a intentar.";
+        statusLine.className = "bad";
+      }
+    }).catch(function () {
+      statusLine.textContent = "No se pudo comprobar el soporte de AR en este dispositivo.";
+      statusLine.className = "bad";
+    });
+  }
+
+  // ---------- Three.js / WebXR ----------
+  var scene, camera, renderer;
+  var controller, reticle;
+  var hitTestSource = null;
+  var hitTestSourceRequested = false;
+  var placedObjects = [];
+
+  function initThree() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    var hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.1);
+    hemi.position.set(0.5, 1, 0.25);
+    scene.add(hemi);
+    var dir = new THREE.DirectionalLight(0xffffff, 0.45);
+    dir.position.set(1, 2, 1);
+    scene.add(dir);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    renderer.domElement.style.position = "fixed";
+    renderer.domElement.style.inset = "0";
+    renderer.domElement.style.zIndex = "5";
+    document.body.appendChild(renderer.domElement);
+
+    controller = renderer.xr.getController(0);
+    controller.addEventListener("select", onSelect);
+    scene.add(controller);
+
+    reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.07, 0.09, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffb020 })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    window.addEventListener("resize", onResize);
+  }
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // ---------- Etiquetas de texto (sprites) ----------
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function makeLabelSprite(text, opts) {
+    opts = opts || {};
+    var fontSize = opts.fontSize || 44;
+    var padX = 16, padY = 12;
+    var canvas = document.createElement("canvas");
+    var ctx = canvas.getContext("2d");
+    ctx.font = "600 " + fontSize + "px -apple-system, sans-serif";
+    var textWidth = ctx.measureText(text).width;
+    canvas.width = Math.ceil(textWidth) + padX * 2;
+    canvas.height = fontSize + padY * 2;
+    ctx.font = "600 " + fontSize + "px -apple-system, sans-serif";
+    ctx.fillStyle = opts.bg || "rgba(10,14,20,0.8)";
+    roundRectPath(ctx, 0, 0, canvas.width, canvas.height, 16);
+    ctx.fill();
+    ctx.fillStyle = opts.color || "#ffb020";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+
+    var tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    var mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    var sprite = new THREE.Sprite(mat);
+    var worldH = opts.worldHeight || 0.045;
+    var aspect = canvas.width / canvas.height;
+    sprite.scale.set(worldH * aspect, worldH, 1);
+    return sprite;
+  }
+
+  // ---------- Construcción de modelos de cámara (geometría procedural) ----------
+  // Convención: el eje +Y local es la normal de la superficie (hacia afuera,
+  // ya sea de una pared, un techo o un piso). Todo se construye "creciendo"
+  // desde y=0 (punto de apoyo contra la superficie) hacia +Y (hacia la sala).
+  function buildCameraMesh(type) {
+    var cfg = cameraTypes[type];
+    var group = new THREE.Group();
+    var bodyMat = new THREE.MeshStandardMaterial({ color: cfg.color, roughness: 0.45, metalness: 0.2 });
+    var darkMat = new THREE.MeshStandardMaterial({ color: cfg.dark, roughness: 0.25, metalness: 0.3 });
+    var ledMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff2200, emissiveIntensity: 1.4, roughness: 0.5 });
+
+    var lensY = 0.05; // valor por defecto, se recalcula por tipo
+
+    if (type === "bullet") {
+      var y = 0;
+      var plateH = 0.006;
+      var plate = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, plateH, 16), bodyMat);
+      plate.position.y = y + plateH / 2; y += plateH;
+      group.add(plate);
+
+      var armH = 0.032;
+      var arm = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.009, armH, 10), bodyMat);
+      arm.position.y = y + armH / 2; y += armH;
+      group.add(arm);
+
+      var bodyLen = 0.1;
+      var body = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.029, bodyLen, 20), bodyMat);
+      body.position.y = y + bodyLen / 2; y += bodyLen;
+      group.add(body);
+
+      var visor = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.006, 0.045), bodyMat);
+      visor.position.set(0, y - 0.01, 0.014);
+      visor.rotation.x = -0.4;
+      group.add(visor);
+
+      var lensLen = 0.012;
+      var lens = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.02, lensLen, 20), darkMat);
+      lens.position.y = y + lensLen / 2; y += lensLen;
+      group.add(lens);
+
+      var led = new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 8), ledMat);
+      led.position.set(0.014, y - 0.004, 0.006);
+      group.add(led);
+
+      lensY = y;
+    } else if (type === "dome") {
+      var y2 = 0;
+      var baseH = 0.012;
+      var base = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, baseH, 24), bodyMat);
+      base.position.y = y2 + baseH / 2; y2 += baseH;
+      group.add(base);
+
+      var domeR = 0.048;
+      var dome = new THREE.Mesh(
+        new THREE.SphereGeometry(domeR, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+        darkMat
+      );
+      dome.position.y = y2;
+      group.add(dome);
+
+      var led2 = new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 8), ledMat);
+      led2.position.set(domeR * 0.55, y2 + domeR * 0.35, domeR * 0.55);
+      group.add(led2);
+
+      lensY = y2 + domeR * 0.55;
+    } else {
+      var y3 = 0;
+      var plateH3 = 0.006;
+      var plate3 = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, plateH3, 16), bodyMat);
+      plate3.position.y = y3 + plateH3 / 2; y3 += plateH3;
+      group.add(plate3);
+
+      var armH3 = 0.03;
+      var arm3 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.01, armH3, 10), bodyMat);
+      arm3.position.y = y3 + armH3 / 2; y3 += armH3;
+      group.add(arm3);
+
+      var ballR = 0.046;
+      var ballCenterY = y3 + ballR;
+
+      var yokeGeo = new THREE.BoxGeometry(0.009, ballR * 1.7, 0.009);
+      var yokeL = new THREE.Mesh(yokeGeo, bodyMat);
+      yokeL.position.set(-(ballR + 0.007), ballCenterY, 0);
+      group.add(yokeL);
+      var yokeR = new THREE.Mesh(yokeGeo, bodyMat);
+      yokeR.position.set(ballR + 0.007, ballCenterY, 0);
+      group.add(yokeR);
+
+      var ball = new THREE.Mesh(new THREE.SphereGeometry(ballR, 22, 18), bodyMat);
+      ball.position.y = ballCenterY;
+      group.add(ball);
+
+      var eyeLen = 0.022;
+      var eye = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, eyeLen, 18), darkMat);
+      eye.rotation.x = 0;
+      eye.position.set(0, ballCenterY + ballR * 0.15, ballR * 0.86);
+      eye.rotation.x = Math.PI / 2 * 0.15;
+      group.add(eye);
+
+      var led3 = new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 8), ledMat);
+      led3.position.set(0.02, ballCenterY + ballR * 0.6, ballR * 0.6);
+      group.add(led3);
+
+      lensY = ballCenterY + ballR + 0.01;
+    }
+
+    return { group: group, lensY: lensY };
+  }
+
+  // ---------- Cono de cobertura + anillos de distancia ----------
+  function buildCoverageVisual(fovDeg, lensY) {
+    var g = new THREE.Group();
+    var halfAngle = (fovDeg / 2) * (Math.PI / 180);
+
+    var geo = new THREE.ConeGeometry(COVERAGE_RANGE * Math.tan(halfAngle), COVERAGE_RANGE, 28, 1, true);
+    geo.rotateX(Math.PI);
+    geo.translate(0, COVERAGE_RANGE / 2, 0);
+    var mat = new THREE.MeshBasicMaterial({
+      color: 0xffb020, transparent: true, opacity: 0.15,
+      side: THREE.DoubleSide, depthWrite: false
+    });
+    var cone = new THREE.Mesh(geo, mat);
+    cone.position.y = lensY;
+    g.add(cone);
+
+    var edges = new THREE.EdgesGeometry(geo, 30);
+    var rim = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.4 }));
+    rim.position.y = lensY;
+    g.add(rim);
+
+    for (var d = 1; d < COVERAGE_RANGE; d++) {
+      var r = d * Math.tan(halfAngle);
+      var ring = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(r - 0.006, 0.001), r, 40),
+        new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = lensY + d;
+      g.add(ring);
+
+      var dLabel = makeLabelSprite(d + " m", { worldHeight: 0.03, color: "#ffcf80", bg: "rgba(10,14,20,0.55)" });
+      dLabel.position.set(r + 0.06, lensY + d, 0);
+      g.add(dLabel);
+    }
+
+    return g;
+  }
+
+  function placeCamera() {
+    var type = selectedType;
+    var fov = cameraTypes[type].fov;
+
+    var group = new THREE.Group();
+    reticle.matrix.decompose(group.position, group.quaternion, group.scale);
+
+    var built = buildCameraMesh(type);
+    group.add(built.group);
+
+    var coverageGroup = buildCoverageVisual(fov, built.lensY);
+    coverageGroup.visible = coverageEnabled;
+    group.add(coverageGroup);
+    group.userData.coverageGroup = coverageGroup;
+
+    var label = makeLabelSprite(cameraTypes[type].label + " · " + fov + "°", { worldHeight: 0.04 });
+    label.position.set(0, built.lensY + 0.05, 0);
+    group.add(label);
+
+    scene.add(group);
+    placedObjects.push(group);
+  }
+
+  function clearPlaced() {
+    placedObjects.forEach(function (obj) { scene.remove(obj); });
+    placedObjects = [];
+  }
+  function undoLast() {
+    var obj = placedObjects.pop();
+    if (obj) scene.remove(obj);
+  }
+
+  function onSelect() {
+    if (reticle.visible) placeCamera();
+  }
+
+  // ---------- Sesión AR ----------
+  async function startAR() {
+    try {
+      var session = await navigator.xr.requestSession("immersive-ar", {
+        requiredFeatures: ["hit-test"],
+        optionalFeatures: ["dom-overlay"],
+        domOverlay: { root: document.getElementById("ar-overlay") }
+      });
+      onSessionStarted(session);
+    } catch (err) {
+      statusLine.textContent = "No se pudo iniciar AR: " + err.message;
+      statusLine.className = "bad";
+    }
+  }
+
+  function onSessionStarted(session) {
+    landing.style.display = "none";
+    arOverlay.classList.add("active");
+
+    session.addEventListener("end", onSessionEnded);
+    renderer.xr.setReferenceSpaceType("local");
+    renderer.xr.setSession(session);
+
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+
+    renderer.setAnimationLoop(render);
+  }
+
+  function onSessionEnded() {
+    renderer.setAnimationLoop(null);
+    hitTestSource = null;
+    hitTestSourceRequested = false;
+    clearPlaced();
+    reticle.visible = false;
+
+    arOverlay.classList.remove("active");
+    landing.style.display = "flex";
+  }
+
+  function render(timestamp, frame) {
+    if (frame) {
+      var refSpace = renderer.xr.getReferenceSpace();
+      var session = renderer.xr.getSession();
+
+      if (!hitTestSourceRequested) {
+        session.requestReferenceSpace("viewer").then(function (viewerSpace) {
+          session.requestHitTestSource({ space: viewerSpace }).then(function (source) {
+            hitTestSource = source;
+          });
+        });
+        hitTestSourceRequested = true;
+      }
+
+      if (hitTestSource) {
+        var results = frame.getHitTestResults(hitTestSource);
+        if (results.length) {
+          var pose = results[0].getPose(refSpace);
+          reticle.visible = true;
+          reticle.matrix.fromArray(pose.transform.matrix);
+          statusText.textContent = "Tocá para colocar: " + cameraTypes[selectedType].label + " (" + cameraTypes[selectedType].fov + "°)";
+        } else {
+          reticle.visible = false;
+          statusText.textContent = "Buscando superficie (pared o techo)…";
+        }
+      }
+    }
+    renderer.render(scene, camera);
+  }
+
+  // ---------- Arranque ----------
+  loadPrefs();
+  syncTypeButtons();
+  updateFovLabel();
+  syncCoverageButton();
+  checkSupport();
+  initThree();
+  startBtn.addEventListener("click", startAR);
+})();
+</script>
+</body>
+</html>
